@@ -13,6 +13,7 @@ The below figure shows the file structure of this GitHub resource.
 ```
 African Robotics Unit - Ship Hull Vinyl/
 ├── README
+├── LISENCE
 ├── Meta Data/
 │   ├── Methods.pdf
 │   ├── Sensor Suite/
