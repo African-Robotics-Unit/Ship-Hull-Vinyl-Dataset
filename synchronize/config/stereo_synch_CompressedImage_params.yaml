@@ -1,0 +1,8 @@
+# Stereo Synchronize Node Parameters
+
+rosbagFolderPath: "/mnt/f/AFRL_Underwater_Stereo_Inertial_Pressure/Bus" #path/to/folder
+unsynchedBagName: "bus_original.bag"
+# cam0_topic: /cam_fl/image_raw/compressed # Cemetery
+# cam1_topic: /cam_fr/image_raw/compressed
+cam0_topic: /slave1/image_raw/compressed # Bus
+cam1_topic: /slave2/image_raw/compressed

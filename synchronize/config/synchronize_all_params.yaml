@@ -1,0 +1,8 @@
+# Synchronize Node Parameters
+
+rosbagFolderPath: "/mnt/f/Dataset Creation/IMT Ship Hull Vinyl/Data/original bags" #path/to/folder
+unsynchedBagName: "Ship_Hull_4_2023-06-16-16-35-34.bag"
+cam0_topic: /video_source_0/raw
+cam1_topic: /video_source_1/raw
+imu_topic: /imu/data
+prs_topic: /pressure
