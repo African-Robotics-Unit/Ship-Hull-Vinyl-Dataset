@@ -1,4 +1,4 @@
-An inside sweet water tank at the Institute for Maritime Technology (IMT) in Cape Town was used to take a controlled underwater dataset using a prototype sensor rig. The target scene is a life-sized photomosaic of the side of a commercial ship hull that IMT had previously taken when the ship was last in dry dock. The photomosaic is printed onto a large vinyl tarpaulin and hung along the side of the tank, seen below.
+An inside sweet water tank at the Institute for Maritime Technology (IMT) in Cape Town was used to take a controlled underwater dataset using a prototype sensor rig - 24 October 2023. The target scene is a life-sized photomosaic of the side of a commercial ship hull that IMT had previously taken when the ship was last in dry dock. The photomosaic is printed onto a large vinyl tarpaulin and hung along the side of the tank, seen below.
 
 ![image](https://github.com/adriennewinter/Ship-Hull-Vinyl-Dataset/assets/41785960/88b79a48-5fd5-487f-be79-a25328e091f1)
 
