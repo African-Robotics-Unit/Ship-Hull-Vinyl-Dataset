@@ -1,6 +1,6 @@
 An inside sweet water tank at the Institute for Maritime Technology (IMT) in Cape Town was used to take a controlled underwater dataset using a prototype sensor rig - 24 October 2023. The target scene is a life-sized photomosaic of the side of a commercial ship hull that IMT had previously taken when the ship was last in dry dock. The photomosaic is printed onto a large vinyl tarpaulin and hung along the side of the tank, seen below.
 
-![image](https://github.com/adriennewinter/Ship-Hull-Vinyl-Dataset/assets/41785960/88b79a48-5fd5-487f-be79-a25328e091f1)
+<img src=https://github.com/adriennewinter/Ship-Hull-Vinyl-Dataset/assets/41785960/88b79a48-5fd5-487f-be79-a25328e091f1 height="300" align=right>
 
 Because the tank platform is 1m from the surface of the water, two 3m PVC pipes were used to manoeuvre the rig through the water, seen below. The rig is moved horizontally along the side of the platform facing the vinyl surface. Marks were placed on the PVC pipes as a visual aid to keep the rig at a relatively constant depth when moving horizontally. Once at the end of the vinyl, the rig is lowered directly downward to the next marked depth and moved horizontally back along the platform, creating a square ‘C’ shape. The data collection starts at 0.5m depth and returns at 1m depth.
 
