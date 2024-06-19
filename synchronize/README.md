@@ -1,4 +1,4 @@
-# Data Synchronization Package
+# Data Synchronization ROS Package
 
 This ROS package (tested on ROS1 Melodic and Noetic) contains C++ code for synchronizing rosbag data from multiple sensors: stereo cameras, IMU and a pressure sensor.
 
