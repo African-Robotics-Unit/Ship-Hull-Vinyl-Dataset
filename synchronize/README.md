@@ -14,11 +14,13 @@ The pressure sensor data is expected to be of the type "[sensor_msgs/FluidPressu
 ## Usage
 You will need to edit the topic names and bag file name in the params.yaml file found in the config folder before calling the launch file for the node. 
 
-The launch file creates a synchronizer node that opens a pre-recorded rosbag and extracts all messages and their data to perform synchronization. The synchronizer node expects that all data is recorded into one rosbag under different topics.
+The launch file creates a synchronizer node that opens a pre-recorded rosbag and extracts all messages and their data to perform synchronization using ROS timestamps. The synchronizer node expects that all data is recorded into one rosbag under different topics.
 
 ```
 $ roslaunch synchronize synchronize_node.launch
 ```
+
+It is normal that some messages can be dropped, based on the best-match algorithm in the Approximate Time Synchronizer filter. This ROS package also drops any messages that occur after the last low-frequency sensor message. This means that an IMU with 100Hz will drop the last 100 or less messages after the last message from a 1Hz sensor.
 
 ## Installation
 Download the 'synchronize' package into the src folder of your ROS workspace. 
