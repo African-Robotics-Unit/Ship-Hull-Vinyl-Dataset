@@ -224,9 +224,9 @@ int main(int argc, char** argv)
   cout << "imu = " << k << endl;
   cout << "---" << endl;
   cout << "timestamp differences with respect to cam0:" << endl;
-  cout << "max [cam1, imu] = " << *max_element(stamp_diffs_img1.begin(), stamp_diffs_img1.end()) << ", " << *max_element(stamp_diffs_imu.begin(), stamp_diffs_imu.end()) << ", " << "msecs" << endl;
-  cout << "min [cam1, imu] = " << *min_element(stamp_diffs_img1.begin(), stamp_diffs_img1.end()) << ", " << *min_element(stamp_diffs_imu.begin(), stamp_diffs_imu.end()) << ", " << "msecs" << endl;
-  cout << "average [cam1, imu] = " << round(accumulate(stamp_diffs_img1.begin(), stamp_diffs_img1.end(), 0.0)/stamp_diffs_img1.size()) << ", " << round(accumulate(stamp_diffs_imu.begin(), stamp_diffs_imu.end(), 0.0)/stamp_diffs_imu.size()) << ", " << "msecs" << endl;
+  cout << "max [cam1, imu] = " << *max_element(stamp_diffs_img1.begin(), stamp_diffs_img1.end()) << ", " << *max_element(stamp_diffs_imu.begin(), stamp_diffs_imu.end()) << " msecs" << endl;
+  cout << "min [cam1, imu] = " << *min_element(stamp_diffs_img1.begin(), stamp_diffs_img1.end()) << ", " << *min_element(stamp_diffs_imu.begin(), stamp_diffs_imu.end()) << " msecs" << endl;
+  cout << "average [cam1, imu] = " << round(accumulate(stamp_diffs_img1.begin(), stamp_diffs_img1.end(), 0.0)/stamp_diffs_img1.size()) << ", " << round(accumulate(stamp_diffs_imu.begin(), stamp_diffs_imu.end(), 0.0)/stamp_diffs_imu.size()) << " msecs" << endl;
   cout << "---" << endl;
   cout << "indices of dropped messages:" << endl;
   cout << "cam0 = " << endl;
