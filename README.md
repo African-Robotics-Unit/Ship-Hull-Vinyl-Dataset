@@ -26,6 +26,7 @@ African Robotics Unit - Ship Hull Vinyl/
     ├── config/
     ├── launch/
     ├── src/
+    ├── include/
     ├── CMakeLists.txt
     ├── package.xml
     └── README.md
