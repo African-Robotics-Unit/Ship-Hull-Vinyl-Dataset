@@ -1,13 +1,10 @@
 // -----------------------------------------------------------------------------------------
 // Author: Adrienne Winter, 2023
-// System: ROS1 Melodic, Ubuntu 18 and ROS1 Noetic Ubuntu 20
+// System: ROS1 Melodic Ubuntu 18 and ROS1 Noetic Ubuntu 20
 //
 // This script opens a rosbag file and saves synchronised camera image topics to a new rosbag.
 // It makes use of the ROS package message_filters - approximate time synchronizer.
 // Written and tested in ROS1 Melodic environment.
-//
-// You may have to remove the "protected:" above the signalMessage function in simple_filter.h
-// $ sudo gedit /opt/ros/melodic/include/message_filters/simple_filter.h
 //
 // Edit the params.yaml file in the config folder before calling the launch file for the node.
 // $ roslaunch synchronize stereo_synch.launch
@@ -18,6 +15,8 @@
 #include <iostream>
 #include <cstdio>
 #include <string>
+#include <cmath>
+#include <numeric>
 
 #include <ros/ros.h>
 #include <rosbag/bag.h>
@@ -28,17 +27,23 @@
 #include <message_filters/simple_filter.h>
 #include <sensor_msgs/Image.h>
 
+#include "synchronize/public_simple_filter.h"
+#include "synchronize/synchronize.h"
+
 using namespace std;
 
 //-------------------------GLOBAL VARIABLES-----------------------------------------------------
-std::string rosbagFolderPath;
-std::string unsynchedBagName;
+std::string rosbag_folder_path;
+std::string unsynched_bag_name;
 std::string cam0_topic;
 std::string cam1_topic;
 
 std::queue<sensor_msgs::Image> img0_queue, img1_queue;
-int synchs_cnt, i, j = 0; 
-
+std::vector<int> stamp_diffs_img1;
+std::map<int,ros::Time> all_stamps_img1, all_stamps_img0;
+std::vector<ros::Time> written_stamps_img0, written_stamps_img1;
+int i = 0; 
+int j, k = 1;
 
 //-------------------------FUNCTIONS-------------------------------------------------------
 void synchFilterCallback(const sensor_msgs::Image::ConstPtr& img0_msg, const sensor_msgs::Image::ConstPtr& img1_msg)
@@ -47,7 +52,9 @@ void synchFilterCallback(const sensor_msgs::Image::ConstPtr& img0_msg, const sen
   img0_queue.push(*img0_msg);
   img1_queue.push(*img1_msg);
 
-  synchs_cnt += 1;
+  // Find timestamp differences with respect to img0 and add to respective vectors
+  int img1_diff = findStampDiffMsec(img0_msg, img1_msg);
+  stamp_diffs_img1.push_back(img1_diff);
 }
 
 
@@ -67,7 +74,12 @@ void writeToBag(rosbag::Bag& synched_bag)
 
     // Write a synched pair of messages to a rosbag
     synched_bag.write(cam0_topic, img0_msg.header.stamp, img0_msg); 
-    synched_bag.write(cam1_topic, img1_msg.header.stamp, img1_msg);
+    synched_bag.write(cam1_topic, img0_msg.header.stamp, img1_msg);
+    i++;
+
+    // Store to find indices of dropped messages
+    written_stamps_img0.push_back(img0_msg.header.stamp);
+    written_stamps_img1.push_back(img1_msg.header.stamp);
   }
 }
 
@@ -87,35 +99,37 @@ void synchronizeBag(const std::string& filename, ros::NodeHandle& nh)
 
   // Create empty rosbag to write synched messages into 
   rosbag::Bag synched_bag;
-  synched_bag.open(rosbagFolderPath+"/"+"StereoSynched.bag", rosbag::bagmode::Write); 
+  synched_bag.open(rosbag_folder_path+"/"+"StereoSynched.bag", rosbag::bagmode::Write); 
 
-  // Set up message_filters subscribers to capture images from the bag
-  message_filters::Subscriber<sensor_msgs::Image> img0_sub(nh, cam0_topic, 10); 
-  message_filters::Subscriber<sensor_msgs::Image> img1_sub(nh, cam1_topic, 10);
+  // Set up public_simple_filters for message callbacks
+  PublicSimpleFilter<sensor_msgs::Image> img0_filter;
+  PublicSimpleFilter<sensor_msgs::Image> img1_filter;
   
   // Use an approximate time synchronizer to synchronize image messages
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> approxTimePolicy;
-  message_filters::Synchronizer<approxTimePolicy> sync(approxTimePolicy(100), img0_sub, img1_sub);
+  message_filters::Synchronizer<approxTimePolicy> sync(approxTimePolicy(100), img0_filter, img1_filter);
   sync.registerCallback(boost::bind(&synchFilterCallback, _1, _2));
 
   // Iterate through all messages on all topics in the bag and send them to the synchronizer callback
-  cout << "Writing to synched bag file. This will take a few minutes..." << endl;
+  cout << "Writing to synched bag file. This may take a few minutes..." << endl;
   BOOST_FOREACH(rosbag::MessageInstance const msg, rosbagView)
   {
     if (msg.getTopic() == cam0_topic)
     {
       sensor_msgs::Image::ConstPtr img0 = msg.instantiate<sensor_msgs::Image>();
       if (img0 != NULL)
-        img0_sub.signalMessage(img0); // call the synchFilterCallback
-        i += 1;
+        img0_filter.publicSignalMessage(img0); // call the synchFilterCallback
+        all_stamps_img0[j] = img0->header.stamp; // record message index and timestamp 
+        j++;
     }
 
     if (msg.getTopic() == cam1_topic)
     {
       sensor_msgs::Image::ConstPtr img1 = msg.instantiate<sensor_msgs::Image>();
       if (img1 != NULL)
-        img1_sub.signalMessage(img1); 
-        j += 1;
+        img1_filter.publicSignalMessage(img1); 
+        all_stamps_img1[k] = img1->header.stamp; // record message index and timestamp 
+        k++;
     }
     writeToBag(synched_bag); // write to the rosbag (disk) and empty the image queues as callbacks are made to save RAM space
   }
@@ -133,21 +147,28 @@ int main(int argc, char** argv)
   ros::init(argc, argv, "stereo_synch");
   ros::NodeHandle nh;
   
-  nh.getParam("rosbagFolderPath", rosbagFolderPath);
-  nh.getParam("unsynchedBagName", unsynchedBagName);
+  nh.getParam("rosbag_folder_path", rosbag_folder_path);
+  nh.getParam("unsynched_bag_name", unsynched_bag_name);
   nh.getParam("cam0_topic", cam0_topic);
   nh.getParam("cam1_topic", cam1_topic);
 
-  synchronizeBag(rosbagFolderPath+"/"+unsynchedBagName, nh);
+  synchronizeBag(rosbag_folder_path+"/"+unsynched_bag_name, nh);
 
-  cout << "Total img0 callbacks = " << i << endl;
-  cout << "Total img1 callbacks = " << j << endl;
-  cout << "Total synched messages = " << synchs_cnt << endl;
+  cout << "---" << endl;
+  cout << "Total synched camera messages written to bag = " << i << endl;
+  cout << "---" << endl;
+  cout << "cam1 timestamp differences with respect to cam0:" << endl;
+  cout << "max = " << *max_element(stamp_diffs_img1.begin(), stamp_diffs_img1.end()) << " msecs" << endl;
+  cout << "min = " << *min_element(stamp_diffs_img1.begin(), stamp_diffs_img1.end()) << " msecs" << endl;
+  cout << "average = " << round(accumulate(stamp_diffs_img1.begin(), stamp_diffs_img1.end(), 0.0)/stamp_diffs_img1.size()) << " msecs" << endl;
+  cout << "---" << endl;
+    cout << "indices of dropped messages:" << endl;
+  cout << "cam0 = " << endl;
+  printDroppedInds(all_stamps_img0, written_stamps_img0);
+  cout << "cam1 = " << endl;
+  printDroppedInds(all_stamps_img1, written_stamps_img1);
+  cout << "---" << endl;
   cout << "Press Ctrl+C to kill the node." << endl;
-
-  ros::spin(); 
  
   return 0;
 }
-
-

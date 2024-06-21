@@ -10,12 +10,6 @@
 // Note that some messages may be dropped due to sensor streams starting at different times at the
 // beginning of the bag recording.
 //
-// Installation and Usage:
-// Save this 'synchronize' package to your ROS workspace src folder and build it with catkin.
-//
-// You may have to remove the "protected:" above the signalMessage function in simple_filter.h
-// $ sudo gedit /opt/ros/melodic/include/message_filters/simple_filter.h
-//
 // Edit the params.yaml file in the config folder before calling the launch file for the node.
 // $ roslaunch synchronize synchronize_node.launch
 // -----------------------------------------------------------------------------------------
@@ -26,24 +20,28 @@
 #include <cstdio>
 #include <cstddef>
 #include <string>
+#include <numeric>
+#include <cmath>
 
-#include "ros/ros.h"
+#include <ros/ros.h>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/simple_filter.h>
-#include <sensor_msgs/CompressedImage.h> // compressed camera image messages
 #include <sensor_msgs/Image.h> // camera image messages
 #include <sensor_msgs/Imu.h> // IMU messages
 #include <sensor_msgs/FluidPressure.h> // pressure sensor messages
- 
+
+#include "synchronize/public_simple_filter.h"
+#include "synchronize/synchronize.h"
+
 using namespace std;
 
 //-------------------------GLOBAL VARIABLES-----------------------------------------------------
-std::string rosbagFolderPath;
-std::string unsynchedBagName;
+std::string rosbag_folder_path;
+std::string unsynched_bag_name;
 std::string cam0_topic;
 std::string cam1_topic;
 std::string imu_topic;
@@ -56,10 +54,14 @@ struct synched_struct {
   sensor_msgs::FluidPressure prs;
 };
 
-int synch1_cnt, synch2_cnt, imuBuff_cnt, m, n, o = 0; 
+int m, n, o = 0; 
+int i, j, k, l = 1;
 std::deque<synched_struct> Synch1Buffer, Synch2Buffer; // a deque of structs
 std::deque<sensor_msgs::Imu> imuBuffer;
 std::deque<sensor_msgs::FluidPressure> prsBuffer;
+std::vector<int> stamp_diffs_imu, stamp_diffs_img1, stamp_diffs_prs;
+std::map<int,ros::Time> all_stamps_imu, all_stamps_img1, all_stamps_img0, all_stamps_prs;
+std::vector<ros::Time> written_stamps_imu, written_stamps_img0, written_stamps_img1, written_stamps_prs;
 
 //-------------------------CALLBACKS------------------------------------------------------------
 void Synch1Callback(const sensor_msgs::Image::ConstPtr& img0_synch_msg, const sensor_msgs::Image::ConstPtr& img1_synch_msg, const sensor_msgs::FluidPressure::ConstPtr& prs_synch_msg)
@@ -75,7 +77,9 @@ void Synch1Callback(const sensor_msgs::Image::ConstPtr& img0_synch_msg, const se
   // Insert the struct into the deque
   Synch1Buffer.push_back(SynchedMsgsStruct);
 
-  synch1_cnt += 1;
+  // Find timestamp differences with respect to img0 and add to respective vectors
+  int prs_diff = findStampDiffMsec(img0_synch_msg, prs_synch_msg);
+  stamp_diffs_prs.push_back(prs_diff);
 }
 
 
@@ -92,7 +96,11 @@ void Synch2Callback(const sensor_msgs::Image::ConstPtr& img0_synch_msg, const se
   // Insert the struct into the deque
   Synch2Buffer.push_back(SynchedMsgsStruct);
 
-  synch2_cnt += 1;
+  // Find timestamp differences with respect to img0 and add to respective vectors
+  int img1_diff = findStampDiffMsec(img0_synch_msg, img1_synch_msg);
+  int imu_diff = findStampDiffMsec(img0_synch_msg, imu_synch_msg);
+  stamp_diffs_img1.push_back(img1_diff);
+  stamp_diffs_imu.push_back(imu_diff);
 }
 
 
@@ -100,8 +108,6 @@ void imuBufferCallback(const sensor_msgs::Imu::ConstPtr& imu_msg)
 // Add all IMU messages to a buffer (deque) so that we can preserve higher IMU rate
 {
   imuBuffer.push_back(*imu_msg);
-
-  imuBuff_cnt += 1;
 }
 
 
@@ -148,13 +154,13 @@ void writeToBag(rosbag::Bag& synched_bag)
           while(img0_synch2_msg_plusOne.header.stamp != img0_synch2_front.header.stamp) // loop 2
           {
             Synch2Buffer.pop_front();
-			
             // Write any earlier IMU messages that occured before the current Synch2Buffer message to the rosbag
             while(imuBuffer.front().header.stamp != imu_synch_msg_front.header.stamp) // loop 3
             { 
               synched_bag.write(imu_topic, imuBuffer.front().header.stamp, imuBuffer.front());
-              o += 1;
+              written_stamps_imu.push_back(imuBuffer.front().header.stamp); // Store to find indices of dropped messages
               imuBuffer.pop_front();
+              o++;
             }
             imuBuffer.pop_front(); // remove the IMU message that is the same as the Synch2Buffer so we don't add it to the rosbag twice
 
@@ -162,7 +168,12 @@ void writeToBag(rosbag::Bag& synched_bag)
             synched_bag.write(imu_topic, img0_synch2_front.header.stamp, imu_synch_msg_front);
             synched_bag.write(cam0_topic, img0_synch2_front.header.stamp, img0_synch2_front); 
             synched_bag.write(cam1_topic, img0_synch2_front.header.stamp, img1_synch2_front);
-            n += 1;
+            n++; o++;
+
+            // Store to find indices of dropped messages
+            written_stamps_imu.push_back(imu_synch_msg_front.header.stamp);
+            written_stamps_img0.push_back(img0_synch2_front.header.stamp);
+            written_stamps_img1.push_back(img1_synch2_front.header.stamp);
 
             // Update the front Synch2Buffer messages
             Synch2Struct = Synch2Buffer.front();
@@ -173,8 +184,10 @@ void writeToBag(rosbag::Bag& synched_bag)
           
           // Write the remaining pressure topic of the current Synch1Buffer message to the rosbag
           synched_bag.write(prs_topic, img0_synch2_front.header.stamp, prs_synch1_msg);
+          written_stamps_prs.push_back(prs_synch1_msg.header.stamp); // Store to find indices of dropped messages
           Synch1Buffer.pop_front();
-          m += 1;
+          m++;
+
           break; 
         }
       }
@@ -196,65 +209,73 @@ void synchronizeBag(const std::string& filename, ros::NodeHandle& nh)
   topics.push_back(imu_topic);
   topics.push_back(prs_topic);
   rosbag::View rosbagView(unsynched_bag, rosbag::TopicQuery(topics));
-  ROS_INFO("Opening unsynched bag file.");
+  cout << "Opening unsynched bag file." << endl;
 
   // Create empty rosbag to write synched messages into 
   rosbag::Bag synched_bag;
-  synched_bag.open(rosbagFolderPath+"/"+"Synched.bag", rosbag::bagmode::Write); 
+  synched_bag.open(rosbag_folder_path+"/"+"Synched.bag", rosbag::bagmode::Write);  
 
-  // Set up message_filters subscribers to capture messages from the bag
-  message_filters::Subscriber<sensor_msgs::Image> img0_sub(nh, cam0_topic, 10); 
-  message_filters::Subscriber<sensor_msgs::Image> img1_sub(nh, cam1_topic, 10);
-  message_filters::Subscriber<sensor_msgs::Imu> imu_sub(nh, imu_topic, 20); 
-  message_filters::Subscriber<sensor_msgs::FluidPressure> prs_sub(nh, prs_topic, 10); 
+  // Set up public_simple_filters for message callbacks
+  PublicSimpleFilter<sensor_msgs::Image> img0_filter;
+  PublicSimpleFilter<sensor_msgs::Image> img1_filter;
+  PublicSimpleFilter<sensor_msgs::Imu> imu_filter;
+  PublicSimpleFilter<sensor_msgs::FluidPressure> prs_filter;
 
   // Create Approximate Time Synchronizer 1 (pressure sensor and cameras)
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::FluidPressure> approxTimePolicy1; 
-  message_filters::Synchronizer<approxTimePolicy1> sync1(approxTimePolicy1(100), img0_sub, img1_sub, prs_sub);
+  message_filters::Synchronizer<approxTimePolicy1> sync1(approxTimePolicy1(100), img0_filter, img1_filter, prs_filter);
   sync1.registerCallback(boost::bind(&Synch1Callback, _1, _2, _3)); 
  
   // Create Approximate Time Synchronizer 2 (cameras and IMU)
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::Imu> approxTimePolicy2; 
-  message_filters::Synchronizer<approxTimePolicy2> sync2(approxTimePolicy2(100), img0_sub, img1_sub, imu_sub);
+  message_filters::Synchronizer<approxTimePolicy2> sync2(approxTimePolicy2(100), img0_filter, img1_filter, imu_filter);
   sync2.registerCallback(boost::bind(&Synch2Callback, _1, _2, _3));
 
   // Register the IMU Buffer Callback
-  imu_sub.registerCallback(imuBufferCallback);
+  imu_filter.registerCallback(imuBufferCallback);
 
   // Iterate through all messages on all topics in the bag and send them to their callbacks
-  ROS_INFO("Writing to synched bag file. This will take a few minutes...");
+  cout << "Writing to synched bag file. This may take a few minutes..." << endl;
   BOOST_FOREACH(rosbag::MessageInstance const msg, rosbagView)
   {
     if (msg.getTopic() == cam0_topic)
     {
       sensor_msgs::Image::ConstPtr img0 = msg.instantiate<sensor_msgs::Image>();
       if (img0 != NULL)
-        img0_sub.signalMessage(img0); // call the Synch1Callback and Synch2Callback
+        img0_filter.publicSignalMessage(img0); // call the Synch1Callback and Synch2Callback
+        all_stamps_img0[i] = img0->header.stamp; // record message index and timestamp 
+        i++;
     }
     if (msg.getTopic() == cam1_topic)
     {
       sensor_msgs::Image::ConstPtr img1 = msg.instantiate<sensor_msgs::Image>();
       if (img1 != NULL)
-        img1_sub.signalMessage(img1); // call the Synch1Callback and Synch2Callback
+        img1_filter.publicSignalMessage(img1); // call the Synch1Callback and Synch2Callback
+        all_stamps_img1[j] = img1->header.stamp; // record message index and timestamp 
+        j++;
     }
     if (msg.getTopic() == imu_topic)
     {
       sensor_msgs::Imu::ConstPtr imu = msg.instantiate<sensor_msgs::Imu>();
       if (imu != NULL)
-        imu_sub.signalMessage(imu); // call the Synch2Callback and imuBufferCallback
+        imu_filter.publicSignalMessage(imu); // call the Synch2Callback and imuBufferCallback
+        all_stamps_imu[k] = imu->header.stamp; // record message index and timestamp  
+        k++;
     }
     if (msg.getTopic() == prs_topic)
     {
       sensor_msgs::FluidPressure::ConstPtr prs = msg.instantiate<sensor_msgs::FluidPressure>();
       if (prs != NULL)
-        prs_sub.signalMessage(prs); // call the Synch1Callback
+        prs_filter.publicSignalMessage(prs); // call the Synch1Callback
+        all_stamps_prs[l] = prs->header.stamp; // record message index and timestamp 
+        l++;
     }
     writeToBag(synched_bag); // write to rosbag (disk) and empty the deques as callbacks are made to save RAM space
   }
 
   unsynched_bag.close();
   synched_bag.close();
-  ROS_INFO("Closing both bag files.");
+  cout << "Closing both bag files." << endl;
 }
 
 
@@ -265,25 +286,37 @@ int main(int argc, char** argv)
   ros::init(argc, argv, "synchronize_node");
   ros::NodeHandle nh;
 
-  nh.getParam("rosbagFolderPath", rosbagFolderPath);
-  nh.getParam("unsynchedBagName", unsynchedBagName);
+  nh.getParam("rosbag_folder_path", rosbag_folder_path);
+  nh.getParam("unsynched_bag_name", unsynched_bag_name);
   nh.getParam("cam0_topic", cam0_topic);
   nh.getParam("cam1_topic", cam1_topic);
   nh.getParam("imu_topic", imu_topic);
   nh.getParam("prs_topic", prs_topic);
 
-  synchronizeBag(rosbagFolderPath+"/"+unsynchedBagName, nh);
+  synchronizeBag(rosbag_folder_path+"/"+unsynched_bag_name, nh);
 
-  ROS_INFO("Pressure sensor and camera synched messages (Synch1Buffer) = %d", synch1_cnt);
-  ROS_INFO("Camera and IMU synched messages (Synch2Buffer) = %d", synch2_cnt);
-  ROS_INFO("IMU messages added to imuBuffer = %d", imuBuff_cnt);
-  ROS_INFO("total imuBuffer messages written to bag = %d", o);
-  ROS_INFO("total Synch2Buffer messages written to bag = %d", n);
-  ROS_INFO("total Synch1Buffer messages written to bag = %d", m);
-  ROS_INFO("Synch2Buffer.size() = %lu",Synch2Buffer.size());
-  ROS_INFO("imuBuffer.size() = %lu",imuBuffer.size());
-  ROS_INFO("Press Ctrl+C to kill the node.");
+  cout << "---" << endl;
+  cout << "total messages written to bag:" << endl;
+  cout << "imu = " << o << endl;
+  cout << "cameras = " << n << endl;
+  cout << "pressure = " << m << endl;
+  cout << "---" << endl;
+  cout << "timestamp differences with respect to cam0:" << endl;
+  cout << "max [cam1, imu, prs] = " << *max_element(stamp_diffs_img1.begin(), stamp_diffs_img1.end()) << ", " << *max_element(stamp_diffs_imu.begin(), stamp_diffs_imu.end()) << ", " << *max_element(stamp_diffs_prs.begin(), stamp_diffs_prs.end()) << " msecs" << endl;
+  cout << "min [cam1, imu, prs] = " << *min_element(stamp_diffs_img1.begin(), stamp_diffs_img1.end()) << ", " << *min_element(stamp_diffs_imu.begin(), stamp_diffs_imu.end()) << ", " << *min_element(stamp_diffs_prs.begin(), stamp_diffs_prs.end()) << " msecs" << endl;
+  cout << "average [cam1, imu, prs] = " << round(accumulate(stamp_diffs_img1.begin(), stamp_diffs_img1.end(), 0.0)/stamp_diffs_img1.size()) << ", " << round(accumulate(stamp_diffs_imu.begin(), stamp_diffs_imu.end(), 0.0)/stamp_diffs_imu.size()) << ", " << round(accumulate(stamp_diffs_prs.begin(), stamp_diffs_prs.end(), 0.0)/stamp_diffs_prs.size()) << " msecs" << endl;
+  cout << "---" << endl;
+  cout << "indices of dropped messages:" << endl;
+  cout << "cam0 = " << endl;
+  printDroppedInds(all_stamps_img0, written_stamps_img0);
+  cout << "cam1 = " << endl;
+  printDroppedInds(all_stamps_img1, written_stamps_img1);
+  cout << "imu = " << endl;
+  printDroppedInds(all_stamps_imu, written_stamps_imu); 
+  cout << "prs = " << endl;
+  printDroppedInds(all_stamps_prs, written_stamps_prs);
+  cout << "---" << endl;
+  cout << "Press Ctrl+C to kill the node." << endl;
 
-  ros::spin();
   return 0;
 }
